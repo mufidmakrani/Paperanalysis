@@ -1,0 +1,625 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2868
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 import React, \{ useState \} from 'react';\
+import \{ Upload, Brain, Save \} from 'lucide-react';\
+\
+const SHEET_ID = '1_QmpN5CmFxxgBRpPkq69AABfKhltKf59bDPojzMfWQ8';\
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkK8TfsR5fGibGrL1BkPV28shd1Tk45IHIVizJ1Nqwrx9yQ8bk4NlFZSqP-MwuB9pH/exec';\
+\
+const TEST_CONFIGS = \{\
+  JEE: \{\
+    name: 'JEE Main/Advanced',\
+    total: 75,\
+    subjects: [\
+      \{ name: 'Physics', start: 1, end: 25, color: '#3b82f6' \},\
+      \{ name: 'Chemistry', start: 26, end: 50, color: '#f59e0b' \},\
+      \{ name: 'Maths', start: 51, end: 75, color: '#10b981' \}\
+    ]\
+  \},\
+  NEET: \{\
+    name: 'NEET',\
+    total: 180,\
+    subjects: [\
+      \{ name: 'Physics', start: 1, end: 45, color: '#3b82f6' \},\
+      \{ name: 'Chemistry', start: 46, end: 90, color: '#f59e0b' \},\
+      \{ name: 'Biology', start: 91, end: 180, color: '#ec4899' \}\
+    ]\
+  \},\
+  BOARDS: \{\
+    name: 'Board Exam',\
+    total: 50,\
+    subjects: [\
+      \{ name: 'Subject', start: 1, end: 50, color: '#8b5cf6' \}\
+    ]\
+  \}\
+\};\
+\
+export default function WeaknessAnalyzer() \{\
+  const [step, setStep] = useState('select-test');\
+  const [testType, setTestType] = useState(null);\
+  const [uploadedFile, setUploadedFile] = useState(null);\
+  const [analyzing, setAnalyzing] = useState(false);\
+  const [questionMap, setQuestionMap] = useState(null);\
+  const [wrongAnswers, setWrongAnswers] = useState('');\
+  const [analysis, setAnalysis] = useState(null);\
+  const [studentName, setStudentName] = useState('');\
+  const [saving, setSaving] = useState(false);\
+\
+  const parseQuestionNumbers = (input) => \{\
+    const numbers = new Set();\
+    const parts = input.split(',').map(p => p.trim());\
+    \
+    for (const part of parts) \{\
+      if (part.includes('-')) \{\
+        const [start, end] = part.split('-').map(n => parseInt(n.trim()));\
+        for (let i = start; i <= end; i++) \{\
+          numbers.add(i);\
+        \}\
+      \} else if (part) \{\
+        numbers.add(parseInt(part));\
+      \}\
+    \}\
+    \
+    return Array.from(numbers).sort((a, b) => a - b);\
+  \};\
+\
+  const handleFileUpload = async (e) => \{\
+    const file = e.target.files[0];\
+    if (!file) return;\
+\
+    setUploadedFile(file);\
+    setAnalyzing(true);\
+\
+    try \{\
+      const base64 = await new Promise((resolve, reject) => \{\
+        const reader = new FileReader();\
+        reader.onload = () => resolve(reader.result.split(',')[1]);\
+        reader.onerror = reject;\
+        reader.readAsDataURL(file);\
+      \});\
+\
+      const fileType = file.type;\
+      const testConfig = TEST_CONFIGS[testType];\
+\
+      const response = await fetch(APPS_SCRIPT_URL, \{\
+        method: 'POST',\
+        headers: \{ 'Content-Type': 'application/json' \},\
+        body: JSON.stringify(\{\
+          action: 'analyze_paper',\
+          fileData: base64,\
+          fileType: fileType,\
+          testConfig: testConfig\
+        \})\
+      \});\
+\
+      const result = await response.json();\
+      \
+      if (!result.success) \{\
+        throw new Error(result.error || 'Analysis failed');\
+      \}\
+      \
+      setQuestionMap(result.data.questions);\
+      setStep('input-wrong');\
+    \} catch (error) \{\
+      alert('Error analyzing paper: ' + error.message);\
+      console.error(error);\
+    \} finally \{\
+      setAnalyzing(false);\
+    \}\
+  \};\
+\
+  const analyzeWeaknesses = async () => \{\
+    const wrongNums = parseQuestionNumbers(wrongAnswers);\
+    if (wrongNums.length === 0) \{\
+      alert('Please enter wrong question numbers');\
+      return;\
+    \}\
+\
+    setAnalyzing(true);\
+\
+    try \{\
+      const wrongQuestions = questionMap.filter(q => wrongNums.includes(q.number));\
+      \
+      const response = await fetch(APPS_SCRIPT_URL, \{\
+        method: 'POST',\
+        headers: \{ 'Content-Type': 'application/json' \},\
+        body: JSON.stringify(\{\
+          action: 'analyze_weaknesses',\
+          wrongQuestions: wrongQuestions\
+        \})\
+      \});\
+\
+      const result = await response.json();\
+      \
+      if (!result.success) \{\
+        throw new Error(result.error || 'Analysis failed');\
+      \}\
+      \
+      setAnalysis(result.data);\
+      setStep('results');\
+      \
+      const reportData = \{\
+        studentName,\
+        testType,\
+        timestamp: new Date().toISOString(),\
+        wrongAnswers: wrongNums,\
+        analysis: result.data\
+      \};\
+      localStorage.setItem(`weakness_report_$\{Date.now()\}`, JSON.stringify(reportData));\
+      \
+    \} catch (error) \{\
+      alert('Error analyzing weaknesses: ' + error.message);\
+      console.error(error);\
+    \} finally \{\
+      setAnalyzing(false);\
+    \}\
+  \};\
+\
+  const saveToSheet = async () => \{\
+    if (!studentName.trim()) \{\
+      alert('Please enter student name');\
+      return;\
+    \}\
+\
+    setSaving(true);\
+    try \{\
+      const sheetData = \{\
+        action: 'save_to_sheet',\
+        timestamp: new Date().toLocaleString('en-IN'),\
+        studentName: studentName,\
+        testType: testType,\
+        totalWrong: analysis.summary.total_wrong,\
+        subjects: JSON.stringify(analysis.summary.by_subject),\
+        weakChapters: analysis.weak_chapters.map(c => \
+          `$\{c.subject\}: $\{c.chapter\} ($\{c.wrong_count\})`\
+        ).join('; '),\
+        recommendations: analysis.recommendations.join('; ')\
+      \};\
+\
+      const response = await fetch(APPS_SCRIPT_URL, \{\
+        method: 'POST',\
+        headers: \{ 'Content-Type': 'application/json' \},\
+        body: JSON.stringify(sheetData)\
+      \});\
+\
+      const result = await response.json();\
+      \
+      if (result.success) \{\
+        alert('\uc0\u9989  Report saved to Google Sheets successfully!');\
+      \} else \{\
+        throw new Error(result.error || 'Save failed');\
+      \}\
+    \} catch (error) \{\
+      alert('Error saving to sheet: ' + error.message + '\\nData is saved locally.');\
+    \} finally \{\
+      setSaving(false);\
+    \}\
+  \};\
+\
+  const getSeverityColor = (severity) => \{\
+    switch(severity) \{\
+      case 'high': return '#ef4444';\
+      case 'medium': return '#f59e0b';\
+      case 'low': return '#10b981';\
+      default: return '#6b7280';\
+    \}\
+  \};\
+\
+  return (\
+    <div style=\{\{\
+      minHeight: '100vh',\
+      background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',\
+      fontFamily: '"DM Sans", system-ui, sans-serif',\
+      color: '#f1f5f9',\
+      padding: '2rem'\
+    \}\}>\
+      \{/* Loading Overlay */\}\
+      \{analyzing && (\
+        <div style=\{\{\
+          position: 'fixed',\
+          top: 0,\
+          left: 0,\
+          right: 0,\
+          bottom: 0,\
+          background: 'rgba(15, 23, 42, 0.95)',\
+          backdropFilter: 'blur(8px)',\
+          display: 'flex',\
+          alignItems: 'center',\
+          justifyContent: 'center',\
+          zIndex: 9999,\
+          animation: 'fadeIn 0.3s ease-out'\
+        \}\}>\
+          <div style=\{\{ textAlign: 'center', maxWidth: '400px' \}\}>\
+            <div style=\{\{\
+              width: '60px',\
+              height: '60px',\
+              border: '4px solid rgba(96, 165, 250, 0.2)',\
+              borderTopColor: '#60a5fa',\
+              borderRadius: '50%',\
+              animation: 'spin 1s linear infinite',\
+              margin: '0 auto 2rem'\
+            \}\} />\
+            <div style=\{\{\
+              fontSize: '1.3rem',\
+              fontWeight: 600,\
+              color: '#f1f5f9',\
+              marginBottom: '0.75rem',\
+              animation: 'pulse 2s ease-in-out infinite'\
+            \}\}>\
+              \{step === 'upload' ? 'AI is analyzing your paper...' : 'Analyzing weaknesses...'\}\
+            </div>\
+            <div style=\{\{ fontSize: '0.95rem', color: '#94a3b8', lineHeight: 1.6 \}\}>\
+              \{step === 'upload' \
+                ? 'Reading questions, identifying chapters and subtopics. This takes 20-30 seconds.'\
+                : 'Identifying weak topics and generating recommendations. Almost done!'\}\
+            </div>\
+          </div>\
+        </div>\
+      )\}\
+\
+      <div style=\{\{ maxWidth: '1200px', margin: '0 auto' \}\}>\
+        <div style=\{\{ \
+          display: 'flex', \
+          alignItems: 'center', \
+          gap: '1rem', \
+          marginBottom: '3rem',\
+          borderBottom: '2px solid rgba(255,255,255,0.1)',\
+          paddingBottom: '1.5rem'\
+        \}\}>\
+          <Brain size=\{40\} color="#60a5fa" />\
+          <div>\
+            <h1 style=\{\{ \
+              margin: 0, \
+              fontSize: '2rem', \
+              fontWeight: 700,\
+              fontFamily: '"DM Serif Display", serif',\
+              background: 'linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%)',\
+              WebkitBackgroundClip: 'text',\
+              WebkitTextFillColor: 'transparent'\
+            \}\}>\
+              Weakness Analyzer\
+            </h1>\
+            <p style=\{\{ margin: '0.25rem 0 0 0', color: '#94a3b8', fontSize: '0.9rem' \}\}>\
+              AI-powered test analysis \'95 PCMB Support\
+            </p>\
+          </div>\
+        </div>\
+\
+        \{step === 'select-test' && (\
+          <div>\
+            <h2 style=\{\{ fontSize: '1.5rem', marginBottom: '2rem', fontFamily: '"DM Serif Display", serif' \}\}>\
+              Select Test Type\
+            </h2>\
+            <div style=\{\{ \
+              display: 'grid', \
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', \
+              gap: '1.5rem' \
+            \}\}>\
+              \{Object.entries(TEST_CONFIGS).map(([key, config]) => (\
+                <button\
+                  key=\{key\}\
+                  onClick=\{() => \{\
+                    setTestType(key);\
+                    setStep('upload');\
+                  \}\}\
+                  style=\{\{\
+                    background: 'rgba(255,255,255,0.05)',\
+                    border: '2px solid rgba(255,255,255,0.1)',\
+                    borderRadius: '16px',\
+                    padding: '2rem',\
+                    cursor: 'pointer',\
+                    transition: 'all 0.3s ease',\
+                    textAlign: 'left'\
+                  \}\}\
+                >\
+                  <h3 style=\{\{ margin: '0 0 0.5rem 0', fontSize: '1.3rem', color: '#f1f5f9' \}\}>\
+                    \{config.name\}\
+                  </h3>\
+                  <p style=\{\{ margin: '0 0 1rem 0', color: '#94a3b8', fontSize: '0.9rem' \}\}>\
+                    \{config.total\} Questions\
+                  </p>\
+                  <div style=\{\{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' \}\}>\
+                    \{config.subjects.map(sub => (\
+                      <span\
+                        key=\{sub.name\}\
+                        style=\{\{\
+                          background: sub.color + '20',\
+                          color: sub.color,\
+                          padding: '0.25rem 0.75rem',\
+                          borderRadius: '20px',\
+                          fontSize: '0.85rem',\
+                          fontWeight: 500\
+                        \}\}\
+                      >\
+                        \{sub.name\}\
+                      </span>\
+                    ))\}\
+                  </div>\
+                </button>\
+              ))\}\
+            </div>\
+          </div>\
+        )\}\
+\
+        \{step === 'upload' && (\
+          <div>\
+            <button onClick=\{() => setStep('select-test')\} style=\{\{\
+              background: 'none', border: 'none', color: '#60a5fa', cursor: 'pointer',\
+              fontSize: '0.9rem', marginBottom: '1rem'\
+            \}\}>\
+              \uc0\u8592  Back\
+            </button>\
+            \
+            <h2 style=\{\{ fontSize: '1.5rem', marginBottom: '1rem', fontFamily: '"DM Serif Display", serif' \}\}>\
+              Upload Question Paper\
+            </h2>\
+            <p style=\{\{ color: '#94a3b8', marginBottom: '2rem' \}\}>\
+              \{TEST_CONFIGS[testType].name\} \'95 PDF, Image, or Document\
+            </p>\
+\
+            <div style=\{\{ marginBottom: '2rem' \}\}>\
+              <input\
+                type="text"\
+                placeholder="Enter student name"\
+                value=\{studentName\}\
+                onChange=\{(e) => setStudentName(e.target.value)\}\
+                style=\{\{\
+                  width: '100%', maxWidth: '400px', padding: '1rem',\
+                  background: 'rgba(255,255,255,0.05)', border: '2px solid rgba(255,255,255,0.1)',\
+                  borderRadius: '12px', color: '#f1f5f9', fontSize: '1rem', outline: 'none'\
+                \}\}\
+              />\
+            </div>\
+\
+            <label style=\{\{\
+              display: 'block',\
+              background: analyzing ? 'rgba(96, 165, 250, 0.1)' : 'rgba(255,255,255,0.05)',\
+              border: analyzing ? '2px solid #60a5fa' : '2px dashed rgba(96, 165, 250, 0.5)',\
+              borderRadius: '16px', padding: '3rem', textAlign: 'center',\
+              cursor: analyzing ? 'wait' : 'pointer', transition: 'all 0.3s ease',\
+              opacity: analyzing ? 0.7 : 1\
+            \}\}>\
+              <input\
+                type="file"\
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"\
+                onChange=\{handleFileUpload\}\
+                disabled=\{analyzing\}\
+                style=\{\{ display: 'none' \}\}\
+              />\
+              <Upload size=\{48\} color="#60a5fa" style=\{\{ marginBottom: '1rem' \}\} />\
+              <p style=\{\{ margin: 0, fontSize: '1.1rem', fontWeight: 500 \}\}>\
+                \{analyzing ? '\uc0\u9203  AI is processing your paper...' : 'Drop file or click to upload'\}\
+              </p>\
+              <p style=\{\{ margin: '0.5rem 0 0 0', color: '#94a3b8', fontSize: '0.9rem' \}\}>\
+                \{analyzing ? 'Please wait 20-30 seconds' : 'PDF, JPG, PNG, or DOC'\}\
+              </p>\
+              \{uploadedFile && (\
+                <p style=\{\{ marginTop: '1rem', color: '#60a5fa', fontSize: '0.9rem' \}\}>\
+                  \{uploadedFile.name\}\
+                </p>\
+              )\}\
+            </label>\
+          </div>\
+        )\}\
+\
+        \{step === 'input-wrong' && questionMap && (\
+          <div>\
+            <button onClick=\{() => setStep('upload')\} style=\{\{\
+              background: 'none', border: 'none', color: '#60a5fa', cursor: 'pointer',\
+              fontSize: '0.9rem', marginBottom: '1rem'\
+            \}\}>\
+              \uc0\u8592  Back\
+            </button>\
+\
+            <h2 style=\{\{ fontSize: '1.5rem', marginBottom: '1rem', fontFamily: '"DM Serif Display", serif' \}\}>\
+              Enter Wrong Answers\
+            </h2>\
+            <p style=\{\{ color: '#94a3b8', marginBottom: '2rem' \}\}>\
+              Enter question numbers separated by commas. Use ranges like "7-12"\
+            </p>\
+\
+            <div style=\{\{\
+              background: 'rgba(255,255,255,0.05)', border: '2px solid rgba(255,255,255,0.1)',\
+              borderRadius: '16px', padding: '2rem', marginBottom: '2rem'\
+            \}\}>\
+              <label style=\{\{ display: 'block', marginBottom: '1rem', fontSize: '0.9rem', color: '#94a3b8' \}\}>\
+                Wrong Question Numbers\
+              </label>\
+              <input\
+                type="text"\
+                placeholder="e.g., 1,3,5,7-12,20,25-30"\
+                value=\{wrongAnswers\}\
+                onChange=\{(e) => setWrongAnswers(e.target.value)\}\
+                style=\{\{\
+                  width: '100%', padding: '1rem', background: 'rgba(0,0,0,0.3)',\
+                  border: '2px solid rgba(255,255,255,0.1)', borderRadius: '12px',\
+                  color: '#f1f5f9', fontSize: '1.1rem', outline: 'none', fontFamily: 'monospace'\
+                \}\}\
+              />\
+              <p style=\{\{ marginTop: '0.75rem', color: '#60a5fa', fontSize: '0.85rem' \}\}>\
+                Parsed: \{parseQuestionNumbers(wrongAnswers).length\} questions\
+              </p>\
+            </div>\
+\
+            <button\
+              onClick=\{analyzeWeaknesses\}\
+              disabled=\{analyzing || !wrongAnswers.trim()\}\
+              style=\{\{\
+                background: analyzing ? 'rgba(96, 165, 250, 0.5)' : 'linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%)',\
+                border: 'none', borderRadius: '12px', padding: '1rem 2rem',\
+                color: '#fff', fontSize: '1.1rem', fontWeight: 600,\
+                cursor: analyzing ? 'wait' : (!wrongAnswers.trim() ? 'not-allowed' : 'pointer'),\
+                opacity: (!wrongAnswers.trim() || analyzing) ? 0.5 : 1,\
+                transition: 'all 0.3s ease', display: 'flex', alignItems: 'center', gap: '0.75rem'\
+              \}\}\
+            >\
+              <Brain size=\{20\} />\
+              \{analyzing ? '\uc0\u9203  Analyzing... Please wait' : 'Analyze Weaknesses'\}\
+            </button>\
+          </div>\
+        )\}\
+\
+        \{step === 'results' && analysis && (\
+          <div>\
+            <div style=\{\{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',\
+              marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' \}\}>\
+              <div>\
+                <h2 style=\{\{ fontSize: '1.5rem', margin: '0 0 0.5rem 0', fontFamily: '"DM Serif Display", serif' \}\}>\
+                  Weakness Analysis\
+                </h2>\
+                <p style=\{\{ color: '#94a3b8', margin: 0 \}\}>\
+                  \{studentName || 'Student'\} \'95 \{TEST_CONFIGS[testType].name\}\
+                </p>\
+              </div>\
+              <button onClick=\{saveToSheet\} disabled=\{saving\} style=\{\{\
+                background: saving ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.2)',\
+                border: '2px solid #10b981', borderRadius: '12px', padding: '0.75rem 1.5rem',\
+                color: '#10b981', fontSize: '0.95rem', fontWeight: 600,\
+                cursor: saving ? 'wait' : 'pointer', display: 'flex', alignItems: 'center',\
+                gap: '0.5rem', opacity: saving ? 0.6 : 1\
+              \}\}>\
+                <Save size=\{18\} />\
+                \{saving ? '\uc0\u9203  Saving...' : 'Save to Sheet'\}\
+              </button>\
+            </div>\
+\
+            <div style=\{\{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',\
+              gap: '1rem', marginBottom: '2rem' \}\}>\
+              <div style=\{\{ background: 'rgba(239, 68, 68, 0.1)', border: '2px solid rgba(239, 68, 68, 0.3)',\
+                borderRadius: '12px', padding: '1.5rem' \}\}>\
+                <p style=\{\{ margin: '0 0 0.5rem 0', color: '#94a3b8', fontSize: '0.85rem' \}\}>Total Wrong</p>\
+                <p style=\{\{ margin: 0, fontSize: '2rem', fontWeight: 700, color: '#ef4444' \}\}>\
+                  \{analysis.summary.total_wrong\}\
+                </p>\
+              </div>\
+              \
+              \{Object.entries(analysis.summary.by_subject).map(([subject, count]) => \{\
+                const subjectConfig = TEST_CONFIGS[testType].subjects.find(s => s.name === subject);\
+                return (\
+                  <div key=\{subject\} style=\{\{\
+                    background: subjectConfig ? subjectConfig.color + '15' : 'rgba(255,255,255,0.05)',\
+                    border: `2px solid $\{subjectConfig ? subjectConfig.color + '40' : 'rgba(255,255,255,0.1)'\}`,\
+                    borderRadius: '12px', padding: '1.5rem'\
+                  \}\}>\
+                    <p style=\{\{ margin: '0 0 0.5rem 0', color: '#94a3b8', fontSize: '0.85rem' \}\}>\{subject\}</p>\
+                    <p style=\{\{ margin: 0, fontSize: '2rem', fontWeight: 700,\
+                      color: subjectConfig ? subjectConfig.color : '#f1f5f9' \}\}>\
+                      \{count\}\
+                    </p>\
+                  </div>\
+                );\
+              \})\}\
+            </div>\
+\
+            <h3 style=\{\{ fontSize: '1.2rem', marginBottom: '1.5rem', fontFamily: '"DM Serif Display", serif' \}\}>\
+              Weak Chapters\
+            </h3>\
+            <div style=\{\{ display: 'grid', gap: '1rem', marginBottom: '2rem' \}\}>\
+              \{analysis.weak_chapters.map((chapter, idx) => (\
+                <div key=\{idx\} style=\{\{\
+                  background: 'rgba(255,255,255,0.05)',\
+                  border: `2px solid $\{getSeverityColor(chapter.severity)\}40`,\
+                  borderRadius: '12px', padding: '1.5rem', position: 'relative', overflow: 'hidden'\
+                \}\}>\
+                  <div style=\{\{\
+                    position: 'absolute', top: 0, left: 0, height: '100%', width: '4px',\
+                    background: getSeverityColor(chapter.severity)\
+                  \}\} />\
+                  \
+                  <div style=\{\{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',\
+                    marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' \}\}>\
+                    <div>\
+                      <span style=\{\{ color: '#94a3b8', fontSize: '0.85rem', textTransform: 'uppercase',\
+                        letterSpacing: '0.05em' \}\}>\
+                        \{chapter.subject\}\
+                      </span>\
+                      <h4 style=\{\{ margin: '0.25rem 0 0 0', fontSize: '1.2rem', fontWeight: 600 \}\}>\
+                        \{chapter.chapter\}\
+                      </h4>\
+                    </div>\
+                    <div style=\{\{\
+                      background: getSeverityColor(chapter.severity) + '20',\
+                      color: getSeverityColor(chapter.severity), padding: '0.5rem 1rem',\
+                      borderRadius: '20px', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase'\
+                    \}\}>\
+                      \{chapter.severity\}\
+                    </div>\
+                  </div>\
+\
+                  <div style=\{\{ marginBottom: '1rem' \}\}>\
+                    <p style=\{\{ margin: '0 0 0.5rem 0', color: '#94a3b8', fontSize: '0.85rem' \}\}>\
+                      Wrong Questions: \{chapter.wrong_count\}\
+                    </p>\
+                  </div>\
+\
+                  <div style=\{\{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' \}\}>\
+                    \{chapter.subtopics.map((topic, i) => (\
+                      <span key=\{i\} style=\{\{\
+                        background: 'rgba(255,255,255,0.1)', padding: '0.4rem 0.8rem',\
+                        borderRadius: '6px', fontSize: '0.85rem', color: '#cbd5e1'\
+                      \}\}>\
+                        \{topic\}\
+                      </span>\
+                    ))\}\
+                  </div>\
+                </div>\
+              ))\}\
+            </div>\
+\
+            <h3 style=\{\{ fontSize: '1.2rem', marginBottom: '1rem', fontFamily: '"DM Serif Display", serif' \}\}>\
+              Recommendations\
+            </h3>\
+            <div style=\{\{\
+              background: 'rgba(16, 185, 129, 0.1)', border: '2px solid rgba(16, 185, 129, 0.3)',\
+              borderRadius: '12px', padding: '1.5rem', marginBottom: '2rem'\
+            \}\}>\
+              <ul style=\{\{ margin: 0, paddingLeft: '1.5rem', color: '#cbd5e1' \}\}>\
+                \{analysis.recommendations.map((rec, idx) => (\
+                  <li key=\{idx\} style=\{\{ marginBottom: '0.75rem' \}\}>\{rec\}</li>\
+                ))\}\
+              </ul>\
+            </div>\
+\
+            <button onClick=\{() => \{\
+              setStep('select-test'); setTestType(null); setUploadedFile(null);\
+              setQuestionMap(null); setWrongAnswers(''); setAnalysis(null); setStudentName('');\
+            \}\} style=\{\{\
+              background: 'rgba(255,255,255,0.1)', border: '2px solid rgba(255,255,255,0.2)',\
+              borderRadius: '12px', padding: '1rem 2rem', color: '#f1f5f9',\
+              fontSize: '1rem', fontWeight: 600, cursor: 'pointer'\
+            \}\}>\
+              Analyze Another Test\
+            </button>\
+          </div>\
+        )\}\
+      </div>\
+\
+      <style>\{`\
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap');\
+        \
+        @keyframes fadeIn \{\
+          from \{ opacity: 0; transform: translateY(20px); \}\
+          to \{ opacity: 1; transform: translateY(0); \}\
+        \}\
+        \
+        @keyframes spin \{\
+          from \{ transform: rotate(0deg); \}\
+          to \{ transform: rotate(360deg); \}\
+        \}\
+        \
+        @keyframes pulse \{\
+          0%, 100% \{ opacity: 1; \}\
+          50% \{ opacity: 0.5; \}\
+        \}\
+        \
+        * \{ box-sizing: border-box; \}\
+      `\}</style>\
+    </div>\
+  );\
+\}\
+}
